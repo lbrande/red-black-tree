@@ -1,7 +1,10 @@
-use std::cmp::Ordering::*;
+use core::cell::RefCell;
+use core::cmp::Ordering;
+use std::rc::Rc;
+use std::rc::Weak;
 
 pub struct RBTreeSet<T: Ord> {
-    nodes: Vec<Option<T>>,
+    root: Option<WrappedNode<T>>,
 }
 
 impl<T: Ord> Default for RBTreeSet<T> {
@@ -12,95 +15,104 @@ impl<T: Ord> Default for RBTreeSet<T> {
 
 impl<T: Ord> RBTreeSet<T> {
     pub fn new() -> Self {
-        RBTreeSet { nodes: Vec::new() }
+        RBTreeSet { root: None }
     }
 
     pub fn insert(&mut self, value: T) {
-        let mut index = 0;
-
-        while let Some(other) = self.get(index) {
-            match value.cmp(other) {
-                Less => index = self.left(index),
-                Equal => return,
-                Greater => index = self.right(index),
-            }
-        }
-
-        self.set(index, Some(value));
-    }
-
-    pub fn remove(&mut self, value: T) {
-        let mut index = 0;
-
-        while let Some(other) = self.get(index) {
-            match value.cmp(other) {
-                Less => index = self.left(index),
-                Equal => {
-                    return;
-                }
-                Greater => index = self.right(index),
-            }
-        }
-
-        self.extend_to(index + 1);
-
-        self.nodes[index] = Some(value);
-    }
-
-    pub fn contains(&self, value: &T) -> bool {
-        let mut index = 0;
-
-        while let Some(other) = self.get(index) {
-            match value.cmp(other) {
-                Less => index = self.left(index),
-                Equal => return true,
-                Greater => index = self.right(index),
-            }
-        }
-
-        false
-    }
-
-    fn left(&self, index: usize) -> usize {
-        index * 2 + 1
-    }
-
-    fn right(&self, index: usize) -> usize {
-        index * 2 + 2
-    }
-
-    fn parent(&self, index: usize) -> usize {
-        (index - 1) / 2
-    }
-
-    fn grandparent(&self, index: usize) -> usize {
-        (index - 3) / 4
-    }
-
-    fn get(&self, index: usize) -> Option<&T> {
-        if index < self.nodes.len() {
-            self.nodes[index].as_ref()
+        if let Some(node) = &mut self.root {
+            node.insert(value);
         } else {
-            None
+            self.root = Some(WrappedNode::new(value))
+        }
+    }
+}
+
+struct Node<T: Ord> {
+    value: T,
+    parent: WeakWrappedNode<T>,
+    left_child: Option<WrappedNode<T>>,
+    right_child: Option<WrappedNode<T>>,
+}
+
+impl<T: Ord> Node<T> {
+    fn new(value: T, parent: WeakWrappedNode<T>) -> Self {
+        Self {
+            value,
+            parent,
+            left_child: None,
+            right_child: None,
+        }
+    }
+}
+
+struct WrappedNode<T: Ord> {
+    node: Rc<RefCell<Node<T>>>,
+}
+
+impl<T: Ord> WrappedNode<T> {
+    fn new(value: T) -> Self {
+        Self {
+            node: Rc::new(RefCell::new(Node::new(value, WeakWrappedNode::new()))),
         }
     }
 
-    fn set(&mut self, index: usize, value: Option<T>) {
-        self.extend_to(index + 1);
-        self.nodes[index] = value
-    }
-
-    fn take(&mut self, index: usize) -> Option<T> {
-        if index < self.nodes.len() {
-            self.nodes[index].take()
-        } else {
-            None
+    fn insert(&mut self, value: T) {
+        match value.cmp(&self.node.borrow().value) {
+            Less => {
+                match &mut self.node.borrow_mut().left_child {
+                    Some(node) => node.insert(value),
+                    None => self.set_left_child(value),
+                };
+            }
+            Equal => return,
+            Greater => {
+                match &mut self.node.borrow_mut().right_child {
+                    Some(node) => node.insert(value),
+                    None => self.set_right_child(value),
+                };
+            }
         }
     }
 
-    fn extend_to(&mut self, size: usize) {
-        while self.nodes.len() < size {
-            self.nodes.push(None);
+    fn has_left_child(&self) -> bool {
+        self.node.borrow().left_child.is_some()
+    }
+
+    fn set_left_child(&self, value: T) {
+        self.node.borrow_mut().left_child = Some(Self {
+            node: Rc::new(RefCell::new(Node::new(
+                value,
+                WeakWrappedNode::from_node(self),
+            ))),
+        });
+    }
+
+    fn has_right_child(&self) -> bool {
+        self.node.borrow().right_child.is_some()
+    }
+
+    fn set_right_child(&self, value: T) {
+        self.node.borrow_mut().right_child = Some(Self {
+            node: Rc::new(RefCell::new(Node::new(
+                value,
+                WeakWrappedNode::from_node(self),
+            ))),
+        });
+    }
+}
+
+struct WeakWrappedNode<T: Ord> {
+    node: Weak<RefCell<Node<T>>>,
+}
+
+impl<T: Ord> WeakWrappedNode<T> {
+    fn new() -> Self {
+        Self { node: Weak::new() }
+    }
+
+    fn from_node(parent: &WrappedNode<T>) -> Self {
+        Self {
+            node: Rc::downgrade(&parent.node),
         }
     }
 }
