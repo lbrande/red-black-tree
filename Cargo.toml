@@ -1,0 +1,5 @@
+[package]
+name = "red_black_tree"
+version = "0.1.0"
+authors = ["lbrande <lovbra00@gmail.com>"]
+edition = "2018"
