@@ -53,22 +53,26 @@ impl<T: Ord> Node<T> {
     }
 
     fn insert(&mut self, value: T) {
-        let ordering = value.cmp(&self.raw.borrow().value);
-        match ordering {
+        let mut raw = self.raw.borrow_mut();
+        match value.cmp(&raw.value) {
             Less => {
-                if let Some(node) = &mut self.raw.borrow_mut().left_child {
+                if let Some(node) = &mut raw.left_child {
                     node.insert(value);
-                    return;
+                } else {
+                    raw.left_child = Some(Self {
+                        raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
+                    });
                 }
-                self.set_left_child(value);
             }
             Equal => return,
             Greater => {
-                if let Some(node) = &mut self.raw.borrow_mut().right_child {
+                if let Some(node) = &mut raw.right_child {
                     node.insert(value);
-                    return;
+                } else {
+                    raw.right_child = Some(Self {
+                        raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
+                    });
                 }
-                self.set_right_child(value);
             }
         }
     }
@@ -82,14 +86,11 @@ impl<T: Ord> Node<T> {
                 }
             }
             Equal => {
-                self.raw
-                    .borrow_mut()
-                    .parent
-                    .raw
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .left_child = None;
+                if let Some(node) = &mut self.raw.borrow_mut().left_child {
+                    node.remove(value);
+                } else if let Some(node) = &mut self.raw.borrow_mut().right_child {
+                    node.remove(value);
+                }
             }
             Greater => {
                 if let Some(node) = &mut self.raw.borrow_mut().right_child {
@@ -100,9 +101,10 @@ impl<T: Ord> Node<T> {
     }
 
     fn contains(&self, value: &T) -> bool {
-        match value.cmp(&self.raw.borrow().value) {
+        let raw = self.raw.borrow();
+        match value.cmp(&raw.value) {
             Less => {
-                if let Some(node) = &self.raw.borrow().left_child {
+                if let Some(node) = &raw.left_child {
                     node.contains(value)
                 } else {
                     false
@@ -110,25 +112,13 @@ impl<T: Ord> Node<T> {
             }
             Equal => true,
             Greater => {
-                if let Some(node) = &self.raw.borrow().right_child {
+                if let Some(node) = &raw.right_child {
                     node.contains(value)
                 } else {
                     false
                 }
             }
         }
-    }
-
-    fn set_left_child(&mut self, value: T) {
-        self.raw.borrow_mut().left_child = Some(Self {
-            raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
-        });
-    }
-
-    fn set_right_child(&mut self, value: T) {
-        self.raw.borrow_mut().right_child = Some(Self {
-            raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
-        });
     }
 }
 
