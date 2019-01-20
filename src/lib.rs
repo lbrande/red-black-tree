@@ -1,10 +1,10 @@
 use core::cell::RefCell;
-use core::cmp::Ordering;
+use core::cmp::Ordering::*;
 use std::rc::Rc;
 use std::rc::Weak;
 
 pub struct RBTreeSet<T: Ord> {
-    root: Option<WrappedNode<T>>,
+    root: Option<Node<T>>,
 }
 
 impl<T: Ord> Default for RBTreeSet<T> {
@@ -22,97 +22,114 @@ impl<T: Ord> RBTreeSet<T> {
         if let Some(node) = &mut self.root {
             node.insert(value);
         } else {
-            self.root = Some(WrappedNode::new(value))
+            self.root = Some(Node::new(value));
+        }
+    }
+
+    pub fn contains(&self, value: &T) -> bool {
+        if let Some(node) = &self.root {
+            node.contains(value)
+        } else {
+            false
         }
     }
 }
 
 struct Node<T: Ord> {
-    value: T,
-    parent: WeakWrappedNode<T>,
-    left_child: Option<WrappedNode<T>>,
-    right_child: Option<WrappedNode<T>>,
+    raw: Rc<RefCell<RawNode<T>>>,
 }
 
 impl<T: Ord> Node<T> {
-    fn new(value: T, parent: WeakWrappedNode<T>) -> Self {
+    fn new(value: T) -> Self {
+        Self {
+            raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::new()))),
+        }
+    }
+
+    fn insert(&mut self, value: T) {
+        let ordering = value.cmp(&self.raw.borrow().value);
+        match ordering {
+            Less => {
+                if let Some(node) = &mut self.raw.borrow_mut().left_child {
+                    node.insert(value);
+                    return;
+                }
+                self.set_left_child(value);
+            }
+            Equal => return,
+            Greater => {
+                if let Some(node) = &mut self.raw.borrow_mut().right_child {
+                    node.insert(value);
+                    return;
+                }
+                self.set_right_child(value);
+            }
+        }
+    }
+
+    fn contains(&self, value: &T) -> bool {
+        match value.cmp(&self.raw.borrow().value) {
+            Less => {
+                if let Some(node) = &self.raw.borrow().left_child {
+                    node.contains(value)
+                } else {
+                    false
+                }
+            }
+            Equal => true,
+            Greater => {
+                if let Some(node) = &self.raw.borrow().right_child {
+                    node.contains(value)
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    fn set_left_child(&self, value: T) {
+        self.raw.borrow_mut().left_child = Some(Self {
+            raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
+        });
+    }
+
+    fn set_right_child(&self, value: T) {
+        self.raw.borrow_mut().right_child = Some(Self {
+            raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
+        });
+    }
+}
+
+struct WeakNode<T: Ord> {
+    raw: Weak<RefCell<RawNode<T>>>,
+}
+
+impl<T: Ord> WeakNode<T> {
+    fn new() -> Self {
+        Self { raw: Weak::new() }
+    }
+
+    fn from_node(parent: &Node<T>) -> Self {
+        Self {
+            raw: Rc::downgrade(&parent.raw),
+        }
+    }
+}
+
+struct RawNode<T: Ord> {
+    value: T,
+    parent: WeakNode<T>,
+    left_child: Option<Node<T>>,
+    right_child: Option<Node<T>>,
+}
+
+impl<T: Ord> RawNode<T> {
+    fn new(value: T, parent: WeakNode<T>) -> Self {
         Self {
             value,
             parent,
             left_child: None,
             right_child: None,
-        }
-    }
-}
-
-struct WrappedNode<T: Ord> {
-    node: Rc<RefCell<Node<T>>>,
-}
-
-impl<T: Ord> WrappedNode<T> {
-    fn new(value: T) -> Self {
-        Self {
-            node: Rc::new(RefCell::new(Node::new(value, WeakWrappedNode::new()))),
-        }
-    }
-
-    fn insert(&mut self, value: T) {
-        match value.cmp(&self.node.borrow().value) {
-            Less => {
-                match &mut self.node.borrow_mut().left_child {
-                    Some(node) => node.insert(value),
-                    None => self.set_left_child(value),
-                };
-            }
-            Equal => return,
-            Greater => {
-                match &mut self.node.borrow_mut().right_child {
-                    Some(node) => node.insert(value),
-                    None => self.set_right_child(value),
-                };
-            }
-        }
-    }
-
-    fn has_left_child(&self) -> bool {
-        self.node.borrow().left_child.is_some()
-    }
-
-    fn set_left_child(&self, value: T) {
-        self.node.borrow_mut().left_child = Some(Self {
-            node: Rc::new(RefCell::new(Node::new(
-                value,
-                WeakWrappedNode::from_node(self),
-            ))),
-        });
-    }
-
-    fn has_right_child(&self) -> bool {
-        self.node.borrow().right_child.is_some()
-    }
-
-    fn set_right_child(&self, value: T) {
-        self.node.borrow_mut().right_child = Some(Self {
-            node: Rc::new(RefCell::new(Node::new(
-                value,
-                WeakWrappedNode::from_node(self),
-            ))),
-        });
-    }
-}
-
-struct WeakWrappedNode<T: Ord> {
-    node: Weak<RefCell<Node<T>>>,
-}
-
-impl<T: Ord> WeakWrappedNode<T> {
-    fn new() -> Self {
-        Self { node: Weak::new() }
-    }
-
-    fn from_node(parent: &WrappedNode<T>) -> Self {
-        Self {
-            node: Rc::downgrade(&parent.node),
         }
     }
 }
