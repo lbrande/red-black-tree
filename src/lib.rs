@@ -26,6 +26,12 @@ impl<T: Ord> RBTreeSet<T> {
         }
     }
 
+    pub fn remove(&mut self, value: &T) {
+        if let Some(node) = &mut self.root {
+            node.remove(value);
+        }
+    }
+
     pub fn contains(&self, value: &T) -> bool {
         if let Some(node) = &self.root {
             node.contains(value)
@@ -67,6 +73,32 @@ impl<T: Ord> Node<T> {
         }
     }
 
+    fn remove(&mut self, value: &T) {
+        let ordering = value.cmp(&self.raw.borrow().value);
+        match ordering {
+            Less => {
+                if let Some(node) = &mut self.raw.borrow_mut().left_child {
+                    node.remove(value);
+                }
+            }
+            Equal => {
+                self.raw
+                    .borrow_mut()
+                    .parent
+                    .raw
+                    .upgrade()
+                    .unwrap()
+                    .borrow_mut()
+                    .left_child = None;
+            }
+            Greater => {
+                if let Some(node) = &mut self.raw.borrow_mut().right_child {
+                    node.remove(value);
+                }
+            }
+        }
+    }
+
     fn contains(&self, value: &T) -> bool {
         match value.cmp(&self.raw.borrow().value) {
             Less => {
@@ -87,13 +119,13 @@ impl<T: Ord> Node<T> {
         }
     }
 
-    fn set_left_child(&self, value: T) {
+    fn set_left_child(&mut self, value: T) {
         self.raw.borrow_mut().left_child = Some(Self {
             raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
         });
     }
 
-    fn set_right_child(&self, value: T) {
+    fn set_right_child(&mut self, value: T) {
         self.raw.borrow_mut().right_child = Some(Self {
             raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
         });
