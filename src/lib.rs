@@ -18,7 +18,7 @@ impl<T: Ord> TreeSet<T> {
         if let Some(node) = &mut self.root {
             node.insert(value);
         } else {
-            self.root = Some(Box::new(Node::new(value, null_mut())));
+            self.root = Some(Box::new(Node::new(value)));
         }
     }
 
@@ -50,12 +50,12 @@ struct Node<T: Ord> {
 }
 
 impl<T: Ord> Node<T> {
-    fn new(value: T, parent: UnsafeLink<T>) -> Self {
+    fn new(value: T) -> Self {
         Self {
             value,
             left_child: None,
             right_child: None,
-            parent: parent,
+            parent: null_mut(),
         }
     }
 
@@ -65,7 +65,7 @@ impl<T: Ord> Node<T> {
                 if let Some(node) = &mut self.left_child {
                     node.insert(value);
                 } else {
-                    self.left_child = Some(Box::new(Node::new(value, self as UnsafeLink<T>)));
+                    self.set_left_child(Some(Box::new(Node::new(value))));
                 }
             }
             Equal => return,
@@ -73,7 +73,7 @@ impl<T: Ord> Node<T> {
                 if let Some(node) = &mut self.right_child {
                     node.insert(value);
                 } else {
-                    self.right_child = Some(Box::new(Node::new(value, self as UnsafeLink<T>)));
+                    self.set_right_child(Some(Box::new(Node::new(value))));
                 }
             }
         }
@@ -95,40 +95,20 @@ impl<T: Ord> Node<T> {
                         }
                         if let Some(current_parent) = unsafe { current.parent.as_mut() } {
                             if let Some(mut current) = current_parent.right_child.take() {
-                                let raw = current.as_mut() as UnsafeLink<T>;
-                                let parent_raw = current_parent as UnsafeLink<T>;
-                                current_parent.right_child = current.left_child;
-                                if let Some(node) = &mut current_parent.right_child {
-                                    node.parent = parent_raw;
-                                }
-                                current.parent = parent as UnsafeLink<T>;
-                                current.left_child = self.left_child.take();
-                                if let Some(node) = &mut current.left_child {
-                                    node.parent = raw;
-                                }
-                                current.right_child = self.right_child.take();
-                                if let Some(node) = &mut current.right_child {
-                                    node.parent = raw;
-                                }
+                                current_parent.set_right_child(current.left_child.take());
+                                current.set_left_child(self.left_child.take());
+                                current.set_right_child(self.right_child.take());
                                 if *value < parent.value {
-                                    parent.left_child = Some(current);
+                                    parent.set_left_child(Some(current));
                                 } else {
-                                    parent.right_child = Some(current);
+                                    parent.set_right_child(Some(current));
                                 }
                             }
                         }
                     } else if *value < parent.value {
-                        let raw = parent as UnsafeLink<T>;
-                        parent.left_child = self.right_child.take();
-                        if let Some(node) = &mut parent.left_child {
-                            node.parent = raw;
-                        }
+                        parent.set_left_child(self.right_child.take());
                     } else {
-                        let raw = parent as UnsafeLink<T>;
-                        parent.right_child = self.right_child.take();
-                        if let Some(node) = &mut parent.right_child {
-                            node.parent = raw;
-                        }
+                        parent.set_right_child(self.right_child.take());
                     }
                 } else if let Some(node) = &mut self.left_child {
                     let mut current = node;
@@ -136,25 +116,15 @@ impl<T: Ord> Node<T> {
                         current = node;
                     }
                     if let Some(current_parent) = unsafe { current.parent.as_mut() } {
-                        if let Some(mut current) = current_parent.right_child.take() {
-                            if let Some(node) = &mut current.left_child {
-                                node.parent = current_parent as UnsafeLink<T>;
-                            }
-                            current_parent.right_child = current.left_child;
+                        if let Some(current) = current_parent.right_child.take() {
+                            current_parent.set_right_child(current.left_child);
                             self.value = current.value;
                         }
                     }
                 } else if let Some(node) = self.right_child.take() {
-                    let raw = self as UnsafeLink<T>;
                     self.value = node.value;
-                    self.left_child = node.left_child;
-                    if let Some(node) = &mut self.left_child {
-                        node.parent = raw;
-                    }
-                    self.right_child = node.right_child;
-                    if let Some(node) = &mut self.right_child {
-                        node.parent = raw;
-                    }
+                    self.set_left_child(node.left_child);
+                    self.set_right_child(node.right_child);
                 }
             }
             Greater => {
@@ -183,6 +153,20 @@ impl<T: Ord> Node<T> {
                 }
             }
         }
+    }
+
+    fn set_left_child(&mut self, mut node: Link<T>) {
+        if let Some(node) = &mut node {
+            node.parent = self as UnsafeLink<T>;
+        }
+        self.left_child = node;
+    }
+
+    fn set_right_child(&mut self, mut node: Link<T>) {
+        if let Some(node) = &mut node {
+            node.parent = self as UnsafeLink<T>;
+        }
+        self.right_child = node;
     }
 }
 
