@@ -24,7 +24,11 @@ impl<T: Ord> TreeSet<T> {
 
     pub fn remove(&mut self, value: &T) {
         if let Some(node) = &mut self.root {
-            node.remove(value);
+            if node.left_child.is_none() && node.right_child.is_none() {
+                self.root = None;
+            } else {
+                node.remove(value);
+            }
         }
     }
 
@@ -91,9 +95,17 @@ impl<T: Ord> Node<T> {
                         }
                         if let Some(current_parent) = unsafe { current.parent.as_mut() } {
                             if let Some(mut current) = current_parent.right_child.take() {
+                                let raw = current.as_mut() as UnsafeLink<T>;
                                 current_parent.right_child = current.left_child;
+                                current.parent = parent as UnsafeLink<T>;
                                 current.left_child = self.left_child.take();
+                                if let Some(node) = &mut current.left_child {
+                                    node.parent = raw;
+                                }
                                 current.right_child = self.right_child.take();
+                                if let Some(node) = &mut current.right_child {
+                                    node.parent = raw;
+                                }
                                 if *value < parent.value {
                                     parent.left_child = Some(current);
                                 } else {
@@ -102,9 +114,17 @@ impl<T: Ord> Node<T> {
                             }
                         }
                     } else if *value < parent.value {
+                        let raw = parent as UnsafeLink<T>;
                         parent.left_child = self.right_child.take();
+                        if let Some(node) = &mut parent.left_child {
+                            node.parent = raw;
+                        }
                     } else {
+                        let raw = parent as UnsafeLink<T>;
                         parent.right_child = self.right_child.take();
+                        if let Some(node) = &mut parent.right_child {
+                            node.parent = raw;
+                        }
                     }
                 } else if let Some(node) = &mut self.left_child {
                     let mut current = node;
@@ -112,24 +132,24 @@ impl<T: Ord> Node<T> {
                         current = node;
                     }
                     if let Some(current_parent) = unsafe { current.parent.as_mut() } {
-                        if let Some(current) = current_parent.right_child.take() {
-                            current_parent.right_child = current.left_child;
-                            if let Some(mut node) = current.left_child {
+                        if let Some(mut current) = current_parent.right_child.take() {
+                            if let Some(node) = &mut current.left_child {
                                 node.parent = current_parent as UnsafeLink<T>;
                             }
+                            current_parent.right_child = current.left_child;
                             self.value = current.value;
                         }
                     }
                 } else if let Some(node) = self.right_child.take() {
-                    self.value = node.value;
                     let raw = self as UnsafeLink<T>;
+                    self.value = node.value;
                     self.left_child = node.left_child;
                     if let Some(node) = &mut self.left_child {
-                        node.parent = raw
+                        node.parent = raw;
                     }
                     self.right_child = node.right_child;
                     if let Some(node) = &mut self.right_child {
-                        node.parent = raw
+                        node.parent = raw;
                     }
                 }
             }
