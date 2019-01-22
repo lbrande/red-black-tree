@@ -1,4 +1,4 @@
 [[package]]
-name = "red_black_tree"
+name = "red-black-tree"
 version = "0.1.0"
 

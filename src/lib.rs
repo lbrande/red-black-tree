@@ -1,36 +1,30 @@
-use core::cell::Ref;
-use core::cell::RefCell;
-use core::cell::RefMut;
-use core::cmp::Ordering::*;
-use std::rc::Rc;
-use std::rc::Weak;
+use std::cmp::Ordering::*;
 
-pub struct RBTreeSet<T: Ord> {
-    root: Option<Node<T>>,
+type Link<T> = Option<Box<Node<T>>>;
+
+#[derive(Debug, Default)]
+pub struct TreeSet<T: Ord> {
+    root: Link<T>,
 }
 
-impl<T: Ord> Default for RBTreeSet<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T: Ord> RBTreeSet<T> {
+impl<T: Ord> TreeSet<T> {
     pub fn new() -> Self {
-        RBTreeSet { root: None }
+        Self { root: None }
     }
 
     pub fn insert(&mut self, value: T) {
         if let Some(node) = &mut self.root {
             node.insert(value);
         } else {
-            self.root = Some(Node::new(value));
+            self.root = Some(Box::new(Node::new(value)));
         }
     }
 
     pub fn remove(&mut self, value: &T) {
-        if let Some(node) = &mut self.root {
-            node.remove(value);
+        if self.root.is_some() {
+            let node = self.root.as_mut().unwrap();
+            let raw = node.as_mut() as *mut Node<T>;
+            node.remove(value, raw);
         }
     }
 
@@ -43,107 +37,97 @@ impl<T: Ord> RBTreeSet<T> {
     }
 }
 
+#[derive(Debug)]
 struct Node<T: Ord> {
-    raw: Rc<RefCell<RawNode<T>>>,
-}
-
-impl<T: Ord> Clone for Node<T> {
-    fn clone(&self) -> Self {
-        Self {
-            raw: Rc::clone(&self.raw),
-        }
-    }
+    value: T,
+    left_child: Link<T>,
+    right_child: Link<T>,
 }
 
 impl<T: Ord> Node<T> {
     fn new(value: T) -> Self {
         Self {
-            raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::new()))),
+            value,
+            left_child: None,
+            right_child: None,
         }
     }
 
-    fn insert(&self, value: T) {
-        let mut raw = self.as_mut();
-        match value.cmp(&raw.value) {
+    fn insert(&mut self, value: T) {
+        match value.cmp(&self.value) {
             Less => {
-                if let Some(node) = &raw.left_child {
+                if let Some(node) = &mut self.left_child {
                     node.insert(value);
                 } else {
-                    raw.left_child = Some(Self {
-                        raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
-                    });
+                    self.left_child = Some(Box::new(Node::new(value)));
                 }
             }
             Equal => return,
             Greater => {
-                if let Some(node) = &raw.right_child {
+                if let Some(node) = &mut self.right_child {
                     node.insert(value);
                 } else {
-                    raw.right_child = Some(Self {
-                        raw: Rc::new(RefCell::new(RawNode::new(value, WeakNode::from_node(self)))),
-                    });
+                    self.right_child = Some(Box::new(Node::new(value)));
                 }
             }
         }
     }
 
-    fn remove(&self, value: &T) {
-        let ordering = value.cmp(&self.as_ref().value);
-        match ordering {
+    fn remove(&mut self, value: &T, parent: *mut Node<T>) {
+        match value.cmp(&self.value) {
             Less => {
-                if let Some(node) = &self.as_ref().left_child {
-                    node.remove(value);
+                let raw = self as *mut Self;
+                if let Some(node) = &mut self.left_child {
+                    node.remove(value, raw);
                 }
             }
             Equal => {
-                if self.as_ref().left_child.is_some() {
-                    /*let max = self.as_ref().left_child.unwrap().max();
-                    if let Some(left) = &max.as_ref().left_child {
-                        left.as_mut().parent = max.as_ref().parent.clone();
-                        max.as_ref().parent.to_node().unwrap().as_mut().right_child =
-                            max.as_mut().left_child.take();
-                    }
-                    if let Some(right) = &self.as_ref().right_child {
-                        right.as_mut().parent = WeakNode::from_node(&max);
-                    }
-                    max.as_mut().right_child = self.as_mut().right_child.take();
-                    if let Some(left) = &self.as_ref().left_child {
-                        left.as_mut().parent = WeakNode::from_node(&max);
-                    }
-                    max.as_mut().left_child = self.as_mut().left_child.take();
-                    max.as_mut().parent = self.as_ref().parent.clone();
-                    if *value < self.as_ref().parent.to_node().unwrap().as_ref().value {
-                        self.as_ref().parent.to_node().unwrap().as_mut().left_child = Some(max);
+                if let Some(parent) = unsafe { parent.as_mut() } {
+                    let raw = self as *mut Self;
+                    if let Some(node) = &mut self.left_child {
+                        let mut current = node;
+                        let mut current_parent = raw;
+                        loop {
+                            let raw = current.as_mut() as *mut Node<T>;
+                            if let Some(node) = &mut current.right_child {
+                                current = node;
+                                current_parent = raw;
+                            } else {
+                                break;
+                            }
+                        }
+                        if let Some(current_parent) = unsafe { current_parent.as_mut() } {
+                            if let Some(mut current) = current_parent.right_child.take() {
+                                current_parent.right_child = current.left_child;
+                                current.left_child = self.left_child.take();
+                                current.right_child = self.right_child.take();
+                                if *value < parent.value {
+                                    parent.left_child = Some(current);
+                                } else {
+                                    parent.right_child = Some(current);
+                                }
+                            }
+                        }
+                    } else if *value < parent.value {
+                        parent.left_child = self.right_child.take();
                     } else {
-                        self.as_ref().parent.to_node().unwrap().as_mut().right_child = Some(max);
-                    }*/
-                } else {
-                    /*if let Some(node) = &self.as_ref().right_child {
-                        node.as_mut().parent = self.as_ref().parent.clone();
-                    }*/
-                    let less = *value < self.as_ref().parent.to_node().unwrap().as_ref().value;
-                    if less {
-                        /*self.as_ref().parent.to_node().unwrap().as_mut().left_child =
-                            self.as_mut().right_child.take();*/
-                    } else {
-                        self.as_ref().parent.to_node().unwrap().as_mut().right_child =
-                            self.as_mut().right_child.take();
+                        parent.right_child = self.right_child.take();
                     }
                 }
             }
             Greater => {
-                if let Some(node) = &self.as_ref().right_child {
-                    node.remove(value);
+                let raw = self as *mut Self;
+                if let Some(node) = &mut self.right_child {
+                    node.remove(value, raw);
                 }
             }
         }
     }
 
     fn contains(&self, value: &T) -> bool {
-        let raw = self.as_ref();
-        match value.cmp(&raw.value) {
+        match value.cmp(&self.value) {
             Less => {
-                if let Some(node) = &raw.left_child {
+                if let Some(node) = &self.left_child {
                     node.contains(value)
                 } else {
                     false
@@ -151,7 +135,7 @@ impl<T: Ord> Node<T> {
             }
             Equal => true,
             Greater => {
-                if let Some(node) = &raw.right_child {
+                if let Some(node) = &self.right_child {
                     node.contains(value)
                 } else {
                     false
@@ -159,89 +143,56 @@ impl<T: Ord> Node<T> {
             }
         }
     }
-
-    fn as_ref(&self) -> Ref<RawNode<T>> {
-        self.raw.borrow()
-    }
-
-    fn as_mut(&self) -> RefMut<RawNode<T>> {
-        self.raw.borrow_mut()
-    }
-
-    fn max(&self) -> Node<T> {
-        if let Some(node) = &self.raw.borrow().right_child {
-            node.max()
-        } else {
-            self.clone()
-        }
-    }
-}
-
-struct WeakNode<T: Ord> {
-    raw: Weak<RefCell<RawNode<T>>>,
-}
-
-impl<T: Ord> Clone for WeakNode<T> {
-    fn clone(&self) -> Self {
-        Self {
-            raw: Weak::clone(&self.raw),
-        }
-    }
-}
-
-impl<T: Ord> WeakNode<T> {
-    fn new() -> Self {
-        Self { raw: Weak::new() }
-    }
-
-    fn from_node(parent: &Node<T>) -> Self {
-        Self {
-            raw: Rc::downgrade(&parent.raw),
-        }
-    }
-
-    fn to_node(&self) -> Option<Node<T>> {
-        self.raw.upgrade().map(|r| Node { raw: r })
-    }
-}
-
-struct RawNode<T: Ord> {
-    value: T,
-    parent: WeakNode<T>,
-    left_child: Option<Node<T>>,
-    right_child: Option<Node<T>>,
-}
-
-impl<T: Ord> RawNode<T> {
-    fn new(value: T, parent: WeakNode<T>) -> Self {
-        Self {
-            value,
-            parent,
-            left_child: None,
-            right_child: None,
-        }
-    }
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
+mod tests {
+    use crate::*;
 
     #[test]
-    fn insert_test() {
-        let mut set = RBTreeSet::new();
-        set.insert(10);
-        set.insert(15);
-        set.insert(4);
+    fn tree_set_test() {
+        let mut set = TreeSet::new();
+
+        set.insert(6);
+        set.insert(3);
+        set.insert(0);
         set.insert(7);
+        set.insert(4);
+        set.insert(1);
+        set.insert(8);
+        set.insert(5);
+        set.insert(2);
+        set.insert(9);
 
-        assert_eq!(set.contains(&7), true);
-        assert_eq!(set.contains(&10), true);
-        assert_eq!(set.contains(&15), true);
-        assert_eq!(set.contains(&3), false);
-
-        set.remove(&15);
-
-        assert_eq!(set.contains(&15), false);
+        assert!(set.contains(&6));
+        set.remove(&6);
+        assert!(!set.contains(&6));
+        assert!(set.contains(&3));
+        set.remove(&3);
+        assert!(!set.contains(&3));
+        assert!(set.contains(&0));
+        set.remove(&0);
+        assert!(!set.contains(&0));
+        assert!(set.contains(&7));
+        set.remove(&7);
+        assert!(!set.contains(&7));
+        assert!(set.contains(&4));
+        set.remove(&4);
+        assert!(!set.contains(&4));
+        assert!(set.contains(&1));
+        set.remove(&1);
+        assert!(!set.contains(&1));
+        assert!(set.contains(&8));
+        set.remove(&8);
+        assert!(!set.contains(&8));
+        assert!(set.contains(&5));
+        set.remove(&5);
+        assert!(!set.contains(&5));
+        assert!(set.contains(&2));
+        set.remove(&2);
+        assert!(!set.contains(&2));
+        assert!(set.contains(&9));
+        set.remove(&9);
+        assert!(!set.contains(&9));
     }
 }
