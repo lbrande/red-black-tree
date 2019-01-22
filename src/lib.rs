@@ -2,6 +2,7 @@ use std::cmp::Ordering::*;
 use std::ptr::*;
 
 type Link<T> = Option<Box<Node<T>>>;
+type UnsafeLink<T> = *mut Node<T>;
 
 #[derive(Debug, Default)]
 pub struct TreeSet<T: Ord> {
@@ -17,17 +18,13 @@ impl<T: Ord> TreeSet<T> {
         if let Some(node) = &mut self.root {
             node.insert(value);
         } else {
-            self.root = Some(Box::new(Node::new(value)));
+            self.root = Some(Box::new(Node::new(value, null_mut())));
         }
     }
 
     pub fn remove(&mut self, value: &T) {
         if let Some(node) = &mut self.root {
-            if *value == node.value {
-                self.root = node.remove_as_root();
-            } else {
-                node.remove(value, null_mut());
-            }
+            node.remove(value);
         }
     }
 
@@ -45,14 +42,16 @@ struct Node<T: Ord> {
     value: T,
     left_child: Link<T>,
     right_child: Link<T>,
+    parent: UnsafeLink<T>,
 }
 
 impl<T: Ord> Node<T> {
-    fn new(value: T) -> Self {
+    fn new(value: T, parent: UnsafeLink<T>) -> Self {
         Self {
             value,
             left_child: None,
             right_child: None,
+            parent: parent,
         }
     }
 
@@ -62,7 +61,7 @@ impl<T: Ord> Node<T> {
                 if let Some(node) = &mut self.left_child {
                     node.insert(value);
                 } else {
-                    self.left_child = Some(Box::new(Node::new(value)));
+                    self.left_child = Some(Box::new(Node::new(value, self as UnsafeLink<T>)));
                 }
             }
             Equal => return,
@@ -70,36 +69,27 @@ impl<T: Ord> Node<T> {
                 if let Some(node) = &mut self.right_child {
                     node.insert(value);
                 } else {
-                    self.right_child = Some(Box::new(Node::new(value)));
+                    self.right_child = Some(Box::new(Node::new(value, self as UnsafeLink<T>)));
                 }
             }
         }
     }
 
-    fn remove(&mut self, value: &T, parent: *mut Self) {
+    fn remove(&mut self, value: &T) {
         match value.cmp(&self.value) {
             Less => {
-                let raw = self as *mut Self;
                 if let Some(node) = &mut self.left_child {
-                    node.remove(value, raw);
+                    node.remove(value);
                 }
             }
             Equal => {
-                if let Some(parent) = unsafe { parent.as_mut() } {
-                    let raw = self as *mut Self;
+                if let Some(parent) = unsafe { self.parent.as_mut() } {
                     if let Some(node) = &mut self.left_child {
                         let mut current = node;
-                        let mut current_parent = raw;
-                        loop {
-                            let raw = current.as_mut() as *mut Self;
-                            if let Some(node) = &mut current.right_child {
-                                current = node;
-                                current_parent = raw;
-                            } else {
-                                break;
-                            }
+                        while let Some(node) = &mut current.right_child {
+                            current = node;
                         }
-                        if let Some(current_parent) = unsafe { current_parent.as_mut() } {
+                        if let Some(current_parent) = unsafe { current.parent.as_mut() } {
                             if let Some(mut current) = current_parent.right_child.take() {
                                 current_parent.right_child = current.left_child;
                                 current.left_child = self.left_child.take();
@@ -116,41 +106,39 @@ impl<T: Ord> Node<T> {
                     } else {
                         parent.right_child = self.right_child.take();
                     }
+                } else if let Some(node) = &mut self.left_child {
+                    let mut current = node;
+                    while let Some(node) = &mut current.right_child {
+                        current = node;
+                    }
+                    if let Some(current_parent) = unsafe { current.parent.as_mut() } {
+                        if let Some(current) = current_parent.right_child.take() {
+                            current_parent.right_child = current.left_child;
+                            if let Some(mut node) = current.left_child {
+                                node.parent = current_parent as UnsafeLink<T>;
+                            }
+                            self.value = current.value;
+                        }
+                    }
+                } else if let Some(node) = self.right_child.take() {
+                    self.value = node.value;
+                    let raw = self as UnsafeLink<T>;
+                    self.left_child = node.left_child;
+                    if let Some(node) = &mut self.left_child {
+                        node.parent = raw
+                    }
+                    self.right_child = node.right_child;
+                    if let Some(node) = &mut self.right_child {
+                        node.parent = raw
+                    }
                 }
             }
             Greater => {
-                let raw = self as *mut Self;
                 if let Some(node) = &mut self.right_child {
-                    node.remove(value, raw);
+                    node.remove(value);
                 }
             }
         }
-    }
-
-    fn remove_as_root(&mut self) -> Link<T> {
-        let raw = self as *mut Self;
-        if let Some(node) = &mut self.left_child {
-            let mut current = node;
-            let mut current_parent = raw;
-            loop {
-                let raw = current.as_mut() as *mut Self;
-                if let Some(node) = &mut current.right_child {
-                    current = node;
-                    current_parent = raw;
-                } else {
-                    break;
-                }
-            }
-            if let Some(current_parent) = unsafe { current_parent.as_mut() } {
-                if let Some(mut current) = current_parent.right_child.take() {
-                    current_parent.right_child = current.left_child;
-                    current.left_child = self.left_child.take();
-                    current.right_child = self.right_child.take();
-                    return Some(current);
-                }
-            }
-        }
-        self.right_child.take()
     }
 
     fn contains(&self, value: &T) -> bool {
