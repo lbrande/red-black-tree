@@ -96,7 +96,11 @@ impl<T: Ord> Node<T> {
                         if let Some(current_parent) = unsafe { current.parent.as_mut() } {
                             if let Some(mut current) = current_parent.right_child.take() {
                                 let raw = current.as_mut() as UnsafeLink<T>;
+                                let parent_raw = current_parent as UnsafeLink<T>;
                                 current_parent.right_child = current.left_child;
+                                if let Some(node) = &mut current_parent.right_child {
+                                    node.parent = parent_raw;
+                                }
                                 current.parent = parent as UnsafeLink<T>;
                                 current.left_child = self.left_child.take();
                                 if let Some(node) = &mut current.left_child {
