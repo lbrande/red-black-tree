@@ -1,68 +1,11 @@
 use std::cmp::Ordering::*;
-use std::mem;
 use std::ptr::*;
-
-pub struct IntoIter<T: Ord> {
-    next: Link<T>,
-    next_parent: *mut Node<T>,
-}
-
-impl<T: Ord> Iterator for IntoIter<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        if let Some(node) = self.next.take() {
-            let next = node.next(self.next_parent);
-            self.next_parent = next.1;
-            self.next = next.0;
-            self.next.take().map(|node| node.value)
-        } else {
-            None
-        }
-    }
-}
-
-impl<T: Ord> IntoIter<T> {
-    fn new(node: Link<T>) -> Self {
-        if let Some(node) = node {
-            let mut current = node;
-            let mut current_parent = null_mut();
-            loop {
-                let raw = current.as_mut() as *mut Node<T>;
-                if let Some(node) = current.left_child {
-                    current = node;
-                    current_parent = raw;
-                } else {
-                    break;
-                }
-            }
-            Self {
-                next: Some(current),
-                next_parent: current_parent,
-            }
-        } else {
-            Self {
-                next: None,
-                next_parent: null_mut(),
-            }
-        }
-    }
-}
 
 type Link<T> = Option<Box<Node<T>>>;
 
 #[derive(Debug, Default)]
 pub struct TreeSet<T: Ord> {
     root: Link<T>,
-}
-
-impl<T: Ord> IntoIterator for TreeSet<T> {
-    type IntoIter = IntoIter<T>;
-    type Item = T;
-
-    fn into_iter(self) -> IntoIter<T> {
-        IntoIter::new(self.root)
-    }
 }
 
 impl<T: Ord> TreeSet<T> {
@@ -228,10 +171,6 @@ impl<T: Ord> Node<T> {
                 }
             }
         }
-    }
-
-    fn next(self, parent: *mut Self) -> (Link<T>, *mut Self) {
-        (None, null_mut())
     }
 }
 
