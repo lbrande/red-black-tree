@@ -60,6 +60,7 @@ impl<T: Ord> TreeSet<T> {
 #[derive(Debug)]
 struct Node<T: Ord> {
     value: T,
+    color: bool,
     left_child: Link<T>,
     right_child: Link<T>,
     parent: UnsafeLink<T>,
@@ -69,6 +70,7 @@ impl<T: Ord> Node<T> {
     fn new(value: T) -> Self {
         Self {
             value,
+            color: false,
             left_child: None,
             right_child: None,
             parent: null_mut(),
@@ -82,6 +84,7 @@ impl<T: Ord> Node<T> {
                     node.insert(value);
                 } else {
                     self.set_left_child(Some(Box::new(Node::new(value))));
+                    self.left_child.as_mut().unwrap().balance_after_insert();
                 }
             }
             Equal => return,
@@ -137,7 +140,7 @@ impl<T: Ord> Node<T> {
         }
     }
 
-    fn min(&self) -> &Node<T> {
+    fn min(&self) -> &Self {
         if let Some(node) = &self.left_child {
             node.min()
         } else {
@@ -145,7 +148,7 @@ impl<T: Ord> Node<T> {
         }
     }
 
-    fn max(&self) -> &Node<T> {
+    fn max(&self) -> &Self {
         if let Some(node) = &self.right_child {
             node.max()
         } else {
@@ -153,9 +156,11 @@ impl<T: Ord> Node<T> {
         }
     }
 
+    fn balance_after_insert(&mut self) {}
+
     fn remove_with_parent(&mut self, parent: &mut Self) {
         if let Some(node) = &mut self.left_child {
-            if let Some(current_parent) = unsafe { node.max().parent.as_mut() } {
+            if let Some(current_parent) = node.max().parent() {
                 if let Some(mut current) = current_parent.right_child.take() {
                     current_parent.set_right_child(current.left_child.take());
                     current.set_left_child(self.left_child.take());
@@ -176,7 +181,7 @@ impl<T: Ord> Node<T> {
 
     fn remove_without_parent(&mut self) {
         if let Some(node) = &mut self.left_child {
-            if let Some(current_parent) = unsafe { node.max().parent.as_mut() } {
+            if let Some(current_parent) = node.max().parent() {
                 if let Some(current) = current_parent.right_child.take() {
                     current_parent.set_right_child(current.left_child);
                     self.value = current.value;
@@ -187,6 +192,34 @@ impl<T: Ord> Node<T> {
             self.set_left_child(node.left_child);
             self.set_right_child(node.right_child);
         }
+    }
+
+    fn parent(&self) -> Option<&mut Self> {
+        unsafe { self.parent.as_mut() }
+    }
+
+    fn grandparent(&self) -> Option<&mut Self> {
+        self.parent().and_then(|node| node.parent())
+    }
+
+    fn sibling(&self) -> Option<&mut Self> {
+        if let Some(parent) = self.parent() {
+            if self.value < parent.value {
+                Node::link_as_mut(&mut parent.right_child)
+            } else {
+                Node::link_as_mut(&mut parent.left_child)
+            }
+        } else {
+            None
+        }
+    }
+
+    fn uncle(&self) -> Option<&mut Self> {
+        self.parent().and_then(|node| node.sibling())
+    }
+
+    fn link_as_mut<'a>(node: &'a mut Link<T>) -> Option<&'a mut Self> {
+        node.as_mut().map(|node| node.as_mut())
     }
 
     fn set_left_child(&mut self, mut node: Link<T>) {
