@@ -39,6 +39,22 @@ impl<T: Ord> TreeSet<T> {
             false
         }
     }
+
+    pub fn min(&self) -> Option<&T> {
+        if let Some(node) = &self.root {
+            Some(&node.min().value)
+        } else {
+            None
+        }
+    }
+
+    pub fn max(&self) -> Option<&T> {
+        if let Some(node) = &self.root {
+            Some(&node.max().value)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -88,43 +104,9 @@ impl<T: Ord> Node<T> {
             }
             Equal => {
                 if let Some(parent) = unsafe { self.parent.as_mut() } {
-                    if let Some(node) = &mut self.left_child {
-                        let mut current = node;
-                        while let Some(node) = &mut current.right_child {
-                            current = node;
-                        }
-                        if let Some(current_parent) = unsafe { current.parent.as_mut() } {
-                            if let Some(mut current) = current_parent.right_child.take() {
-                                current_parent.set_right_child(current.left_child.take());
-                                current.set_left_child(self.left_child.take());
-                                current.set_right_child(self.right_child.take());
-                                if *value < parent.value {
-                                    parent.set_left_child(Some(current));
-                                } else {
-                                    parent.set_right_child(Some(current));
-                                }
-                            }
-                        }
-                    } else if *value < parent.value {
-                        parent.set_left_child(self.right_child.take());
-                    } else {
-                        parent.set_right_child(self.right_child.take());
-                    }
-                } else if let Some(node) = &mut self.left_child {
-                    let mut current = node;
-                    while let Some(node) = &mut current.right_child {
-                        current = node;
-                    }
-                    if let Some(current_parent) = unsafe { current.parent.as_mut() } {
-                        if let Some(current) = current_parent.right_child.take() {
-                            current_parent.set_right_child(current.left_child);
-                            self.value = current.value;
-                        }
-                    }
-                } else if let Some(node) = self.right_child.take() {
-                    self.value = node.value;
-                    self.set_left_child(node.left_child);
-                    self.set_right_child(node.right_child);
+                    self.remove_with_parent(parent);
+                } else {
+                    self.remove_without_parent();
                 }
             }
             Greater => {
@@ -152,6 +134,58 @@ impl<T: Ord> Node<T> {
                     false
                 }
             }
+        }
+    }
+
+    fn min(&self) -> &Node<T> {
+        if let Some(node) = &self.left_child {
+            node.min()
+        } else {
+            self
+        }
+    }
+
+    fn max(&self) -> &Node<T> {
+        if let Some(node) = &self.right_child {
+            node.max()
+        } else {
+            self
+        }
+    }
+
+    fn remove_with_parent(&mut self, parent: &mut Self) {
+        if let Some(node) = &mut self.left_child {
+            if let Some(current_parent) = unsafe { node.max().parent.as_mut() } {
+                if let Some(mut current) = current_parent.right_child.take() {
+                    current_parent.set_right_child(current.left_child.take());
+                    current.set_left_child(self.left_child.take());
+                    current.set_right_child(self.right_child.take());
+                    if current.value < parent.value {
+                        parent.set_left_child(Some(current));
+                    } else {
+                        parent.set_right_child(Some(current));
+                    }
+                }
+            }
+        } else if self.value < parent.value {
+            parent.set_left_child(self.right_child.take());
+        } else {
+            parent.set_right_child(self.right_child.take());
+        }
+    }
+
+    fn remove_without_parent(&mut self) {
+        if let Some(node) = &mut self.left_child {
+            if let Some(current_parent) = unsafe { node.max().parent.as_mut() } {
+                if let Some(current) = current_parent.right_child.take() {
+                    current_parent.set_right_child(current.left_child);
+                    self.value = current.value;
+                }
+            }
+        } else if let Some(node) = self.right_child.take() {
+            self.value = node.value;
+            self.set_left_child(node.left_child);
+            self.set_right_child(node.right_child);
         }
     }
 
