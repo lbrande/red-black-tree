@@ -1,10 +1,11 @@
 use std::cmp::Ordering::*;
+use std::mem::*;
 use std::ptr::*;
 
 type Link<T> = Option<Box<Node<T>>>;
 type UnsafeLink<T> = *mut Node<T>;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct TreeSet<T: Ord> {
     root: Link<T>,
 }
@@ -57,7 +58,6 @@ impl<T: Ord> TreeSet<T> {
     }
 }
 
-#[derive(Debug)]
 struct Node<T: Ord> {
     value: T,
     color: bool,
@@ -84,7 +84,6 @@ impl<T: Ord> Node<T> {
                     node.insert(value);
                 } else {
                     self.set_left_child(Some(Box::new(Node::new(value))));
-                    self.left_child.as_mut().unwrap().balance_after_insert();
                 }
             }
             Equal => return,
@@ -106,10 +105,10 @@ impl<T: Ord> Node<T> {
                 }
             }
             Equal => {
-                if let Some(parent) = unsafe { self.parent.as_mut() } {
-                    self.remove_with_parent(parent);
-                } else {
+                if self.parent.is_null() {
                     self.remove_without_parent();
+                } else {
+                    self.remove_with_parent();
                 }
             }
             Greater => {
@@ -156,26 +155,19 @@ impl<T: Ord> Node<T> {
         }
     }
 
-    fn balance_after_insert(&mut self) {}
-
-    fn remove_with_parent(&mut self, parent: &mut Self) {
+    fn remove_with_parent(&mut self) {
         if let Some(node) = &mut self.left_child {
             if let Some(current_parent) = node.max().parent() {
                 if let Some(mut current) = current_parent.right_child.take() {
                     current_parent.set_right_child(current.left_child.take());
                     current.set_left_child(self.left_child.take());
                     current.set_right_child(self.right_child.take());
-                    if current.value < parent.value {
-                        parent.set_left_child(Some(current));
-                    } else {
-                        parent.set_right_child(Some(current));
-                    }
+                    self.replace_by(Some(current));
                 }
             }
-        } else if self.value < parent.value {
-            parent.set_left_child(self.right_child.take());
         } else {
-            parent.set_right_child(self.right_child.take());
+            let right_child = self.right_child.take();
+            self.replace_by(right_child);
         }
     }
 
@@ -194,6 +186,18 @@ impl<T: Ord> Node<T> {
         }
     }
 
+    fn replace_by(&self, child: Link<T>) {
+        if !self.parent.is_null() {
+            unsafe {
+                if self.value < (*self.parent).value {
+                    (*self.parent).set_left_child(child);
+                } else {
+                    (*self.parent).set_right_child(child);
+                }
+            }
+        }
+    }
+
     fn parent(&self) -> Option<&mut Self> {
         unsafe { self.parent.as_mut() }
     }
@@ -204,11 +208,13 @@ impl<T: Ord> Node<T> {
 
     fn sibling(&self) -> Option<&mut Self> {
         if let Some(parent) = self.parent() {
-            if self.value < parent.value {
-                Node::link_as_mut(&mut parent.right_child)
+            (if self.value < parent.value {
+                &mut parent.right_child
             } else {
-                Node::link_as_mut(&mut parent.left_child)
-            }
+                &mut parent.left_child
+            })
+            .as_mut()
+            .map(|node| node.as_mut())
         } else {
             None
         }
@@ -216,10 +222,6 @@ impl<T: Ord> Node<T> {
 
     fn uncle(&self) -> Option<&mut Self> {
         self.parent().and_then(|node| node.sibling())
-    }
-
-    fn link_as_mut<'a>(node: &'a mut Link<T>) -> Option<&'a mut Self> {
-        node.as_mut().map(|node| node.as_mut())
     }
 
     fn set_left_child(&mut self, mut node: Link<T>) {
