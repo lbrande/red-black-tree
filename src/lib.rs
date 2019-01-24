@@ -19,6 +19,7 @@ impl<T: Ord> TreeSet<T> {
             node.insert(value);
         } else {
             self.root = Some(Box::new(Node::new(value)));
+            self.root.as_mut().unwrap().color = true;
         }
     }
 
@@ -83,6 +84,7 @@ impl<T: Ord> Node<T> {
                     node.insert(value);
                 } else {
                     self.set_left_child(Some(Box::new(Node::new(value))));
+                    self.left_child.as_mut().unwrap().balance_after_insert();
                 }
             }
             Equal => return,
@@ -91,6 +93,7 @@ impl<T: Ord> Node<T> {
                     node.insert(value);
                 } else {
                     self.set_right_child(Some(Box::new(Node::new(value))));
+                    self.right_child.as_mut().unwrap().balance_after_insert();
                 }
             }
         }
@@ -152,6 +155,10 @@ impl<T: Ord> Node<T> {
         } else {
             self
         }
+    }
+
+    fn balance_after_insert(&mut self) {
+
     }
 
     fn remove_with_parent(&mut self) {
