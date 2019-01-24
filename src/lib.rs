@@ -1,5 +1,4 @@
 use std::cmp::Ordering::*;
-use std::mem::*;
 use std::ptr::*;
 
 type Link<T> = Option<Box<Node<T>>>;
@@ -162,12 +161,12 @@ impl<T: Ord> Node<T> {
                     current_parent.set_right_child(current.left_child.take());
                     current.set_left_child(self.left_child.take());
                     current.set_right_child(self.right_child.take());
-                    self.replace_by(Some(current));
+                    self.replace(Some(current));
                 }
             }
         } else {
             let right_child = self.right_child.take();
-            self.replace_by(right_child);
+            self.replace(right_child);
         }
     }
 
@@ -186,7 +185,7 @@ impl<T: Ord> Node<T> {
         }
     }
 
-    fn replace_by(&self, child: Link<T>) {
+    fn replace(&self, child: Link<T>) {
         if !self.parent.is_null() {
             unsafe {
                 if self.value < (*self.parent).value {
