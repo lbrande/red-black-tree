@@ -1,8 +1,15 @@
+use crate::LinkColor::*;
 use std::cmp::Ordering::*;
 use std::ptr::*;
 
 type Link<T> = Option<Box<Node<T>>>;
 type UnsafeLink<T> = *mut Node<T>;
+
+#[derive(Copy,Clone,PartialEq)]
+enum LinkColor {
+    Red,
+    Black,
+}
 
 #[derive(Default)]
 pub struct TreeSet<T: Ord> {
@@ -19,7 +26,7 @@ impl<T: Ord> TreeSet<T> {
             node.insert(value);
         } else {
             self.root = Some(Box::new(Node::new(value)));
-            self.root.as_mut().unwrap().color = true;
+            self.root.as_mut().unwrap().color = Black;
         }
     }
 
@@ -60,7 +67,7 @@ impl<T: Ord> TreeSet<T> {
 
 struct Node<T: Ord> {
     value: T,
-    color: bool,
+    color: LinkColor,
     left_child: Link<T>,
     right_child: Link<T>,
     parent: UnsafeLink<T>,
@@ -70,7 +77,7 @@ impl<T: Ord> Node<T> {
     fn new(value: T) -> Self {
         Self {
             value,
-            color: false,
+            color: Red,
             left_child: None,
             right_child: None,
             parent: null_mut(),
@@ -107,10 +114,10 @@ impl<T: Ord> Node<T> {
                 }
             }
             Equal => {
-                if self.parent.is_null() {
-                    self.remove_without_parent();
-                } else {
+                if self.parent().is_some() {
                     self.remove_with_parent();
+                } else {
+                    self.remove_without_parent();
                 }
             }
             Greater => {
@@ -158,7 +165,17 @@ impl<T: Ord> Node<T> {
     }
 
     fn balance_after_insert(&mut self) {
-
+        if Node::get_color(self.parent()) == Red {
+            match Node::get_color(self.uncle()) {
+                Red => {
+                    Node::set_color(self.parent(), Black);
+                    Node::set_color(self.uncle(), Black);
+                    Node::set_color(self.grandparent(), Red);
+                    self.grandparent().unwrap().balance_after_insert();
+                }
+                Black => {}
+            }
+        }
     }
 
     fn remove_with_parent(&mut self) {
@@ -242,6 +259,20 @@ impl<T: Ord> Node<T> {
             node.parent = self as UnsafeLink<T>;
         }
         self.right_child = node;
+    }
+
+    fn get_color(node: Option<&mut Self>) -> LinkColor {
+        if let Some(node) = node {
+            node.color
+        } else {
+            Black
+        }
+    }
+
+    fn set_color(node: Option<&mut Self>, color: LinkColor) {
+        if let Some(node) = node {
+            node.color = color;
+        }
     }
 }
 
