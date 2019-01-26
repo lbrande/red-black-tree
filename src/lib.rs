@@ -245,20 +245,20 @@ impl<T: Debug + Ord> Node<T> {
         }
     }
 
-    fn make_root(mut self) {
+    fn make_root(mut node: Box<Self>) {
         unsafe {
-            let root = self.root;
-            self.parent = null_mut();
-            *root = Some(Box::new(self));
+            let root = node.root;
+            node.parent = null_mut();
+            *root = Some(node);
         }
     }
 
-    fn make_child_of(self, parent: UnsafeLink<T>) {
+    fn make_child_of(node: Box<Self>, parent: UnsafeLink<T>) {
         unsafe {
-            if self.value < (*parent).value {
-                (*parent).set_left_child(Some(Box::new(self)));
+            if node.value < (*parent).value {
+                (*parent).set_left_child(Some(node));
             } else {
-                (*parent).set_right_child(Some(Box::new(self)));
+                (*parent).set_right_child(Some(node));
             }
         }
     }
@@ -334,10 +334,10 @@ impl<T: Debug + Ord> Node<T> {
                 if node.parent().is_some() {
                     let parent = node.parent;
                     child.set_left_child(node.take());
-                    child.make_child_of(parent);
+                    Node::make_child_of(child, parent);
                 } else {
                     child.set_left_child(node.take());
-                    child.make_root();
+                    Node::make_root(child);
                 }
             }
         }
@@ -350,10 +350,10 @@ impl<T: Debug + Ord> Node<T> {
                 if node.parent().is_some() {
                     let parent = node.parent;
                     child.set_right_child(node.take());
-                    child.make_child_of(parent);
+                    Node::make_child_of(child, parent);
                 } else {
                     child.set_right_child(node.take());
-                    child.make_root();
+                    Node::make_root(child);
                 }
             }
         }
@@ -409,4 +409,5 @@ mod tests {
         assert!(set.contains(&9));
         set.remove(&9);
         assert!(!set.contains(&9));
+    }
 }
