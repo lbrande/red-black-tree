@@ -1,42 +1,40 @@
 use crate::LinkColor::*;
 use std::cmp::Ordering::*;
+use std::fmt::Debug;
 use std::ptr::*;
 
 type Link<T> = Option<Box<Node<T>>>;
 type UnsafeLink<T> = *mut Node<T>;
 
-#[derive(Copy,Clone,PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum LinkColor {
     Red,
     Black,
 }
 
-#[derive(Default)]
-pub struct TreeSet<T: Ord> {
+#[derive(Debug, Default)]
+pub struct TreeSet<T: Debug + Ord> {
     root: Link<T>,
 }
 
-impl<T: Ord> TreeSet<T> {
+impl<T: Debug + Ord> TreeSet<T> {
     pub fn new() -> Self {
         Self { root: None }
     }
 
     pub fn insert(&mut self, value: T) {
+        let root = &mut self.root as *mut Link<T>;
         if let Some(node) = &mut self.root {
-            node.insert(value);
+            node.insert(value, root);
         } else {
-            self.root = Some(Box::new(Node::new(value)));
+            self.root = Some(Box::new(Node::new(value, root)));
             self.root.as_mut().unwrap().color = Black;
         }
     }
 
     pub fn remove(&mut self, value: &T) {
         if let Some(node) = &mut self.root {
-            if node.left_child.is_none() && node.right_child.is_none() {
-                self.root = None;
-            } else {
-                node.remove(value);
-            }
+            node.remove(value);
         }
     }
 
@@ -65,42 +63,45 @@ impl<T: Ord> TreeSet<T> {
     }
 }
 
-struct Node<T: Ord> {
+#[derive(Debug)]
+struct Node<T: Debug + Ord> {
     value: T,
     color: LinkColor,
     left_child: Link<T>,
     right_child: Link<T>,
     parent: UnsafeLink<T>,
+    root: *mut Link<T>,
 }
 
-impl<T: Ord> Node<T> {
-    fn new(value: T) -> Self {
+impl<T: Debug + Ord> Node<T> {
+    fn new(value: T, root: *mut Link<T>) -> Self {
         Self {
             value,
             color: Red,
             left_child: None,
             right_child: None,
             parent: null_mut(),
+            root,
         }
     }
 
-    fn insert(&mut self, value: T) {
+    fn insert(&mut self, value: T, root: *mut Link<T>) {
         match value.cmp(&self.value) {
             Less => {
                 if let Some(node) = &mut self.left_child {
-                    node.insert(value);
+                    node.insert(value, root);
                 } else {
-                    self.set_left_child(Some(Box::new(Node::new(value))));
-                    self.left_child.as_mut().unwrap().balance_after_insert();
+                    self.set_left_child(Some(Box::new(Node::new(value, root))));
+                    Node::balance_after_insert(self.left_child.as_mut().map(|node| node.as_mut()));
                 }
             }
             Equal => return,
             Greater => {
                 if let Some(node) = &mut self.right_child {
-                    node.insert(value);
+                    node.insert(value, root);
                 } else {
-                    self.set_right_child(Some(Box::new(Node::new(value))));
-                    self.right_child.as_mut().unwrap().balance_after_insert();
+                    self.set_right_child(Some(Box::new(Node::new(value, root))));
+                    Node::balance_after_insert(self.right_child.as_mut().map(|node| node.as_mut()));
                 }
             }
         }
@@ -114,10 +115,17 @@ impl<T: Ord> Node<T> {
                 }
             }
             Equal => {
-                if self.parent().is_some() {
-                    self.remove_with_parent();
+                if let Some(node) = &mut self.left_child {
+                    if let Some(mut current) = node.max().take() {
+                        let left_child = current.left_child.take();
+                        current.replace(left_child);
+                        current.set_left_child(self.left_child.take());
+                        current.set_right_child(self.right_child.take());
+                        self.replace(Some(current));
+                    }
                 } else {
-                    self.remove_without_parent();
+                    let right_child = self.right_child.take();
+                    self.replace(right_child);
                 }
             }
             Greater => {
@@ -164,61 +172,18 @@ impl<T: Ord> Node<T> {
         }
     }
 
-    fn balance_after_insert(&mut self) {
-        if Node::get_color(self.parent()) == Red {
-            match Node::get_color(self.uncle()) {
-                Red => {
-                    Node::set_color(self.parent(), Black);
-                    Node::set_color(self.uncle(), Black);
-                    Node::set_color(self.grandparent(), Red);
-                    self.grandparent().unwrap().balance_after_insert();
-                }
-                Black => {}
-            }
+    fn set_left_child(&mut self, mut node: Link<T>) {
+        if let Some(node) = &mut node {
+            node.parent = self as UnsafeLink<T>;
         }
+        self.left_child = node;
     }
 
-    fn remove_with_parent(&mut self) {
-        if let Some(node) = &mut self.left_child {
-            if let Some(current_parent) = node.max().parent() {
-                if let Some(mut current) = current_parent.right_child.take() {
-                    current_parent.set_right_child(current.left_child.take());
-                    current.set_left_child(self.left_child.take());
-                    current.set_right_child(self.right_child.take());
-                    self.replace(Some(current));
-                }
-            }
-        } else {
-            let right_child = self.right_child.take();
-            self.replace(right_child);
+    fn set_right_child(&mut self, mut node: Link<T>) {
+        if let Some(node) = &mut node {
+            node.parent = self as UnsafeLink<T>;
         }
-    }
-
-    fn remove_without_parent(&mut self) {
-        if let Some(node) = &mut self.left_child {
-            if let Some(current_parent) = node.max().parent() {
-                if let Some(current) = current_parent.right_child.take() {
-                    current_parent.set_right_child(current.left_child);
-                    self.value = current.value;
-                }
-            }
-        } else if let Some(node) = self.right_child.take() {
-            self.value = node.value;
-            self.set_left_child(node.left_child);
-            self.set_right_child(node.right_child);
-        }
-    }
-
-    fn replace(&self, child: Link<T>) {
-        if !self.parent.is_null() {
-            unsafe {
-                if self.value < (*self.parent).value {
-                    (*self.parent).set_left_child(child);
-                } else {
-                    (*self.parent).set_right_child(child);
-                }
-            }
-        }
+        self.right_child = node;
     }
 
     fn parent(&self) -> Option<&mut Self> {
@@ -247,18 +212,96 @@ impl<T: Ord> Node<T> {
         self.parent().and_then(|node| node.sibling())
     }
 
-    fn set_left_child(&mut self, mut node: Link<T>) {
-        if let Some(node) = &mut node {
-            node.parent = self as UnsafeLink<T>;
+    fn replace(&self, mut child: Link<T>) {
+        if self.parent.is_null() {
+            unsafe {
+                if let Some(node) = &mut child {
+                    node.parent = null_mut();
+                }
+                *self.root = child;
+            }
+        } else {
+            unsafe {
+                if self.value < (*self.parent).value {
+                    (*self.parent).set_left_child(child);
+                } else {
+                    (*self.parent).set_right_child(child);
+                }
+            }
         }
-        self.left_child = node;
     }
 
-    fn set_right_child(&mut self, mut node: Link<T>) {
-        if let Some(node) = &mut node {
-            node.parent = self as UnsafeLink<T>;
+    fn take(&self) -> Link<T> {
+        if self.parent.is_null() {
+            unsafe { (*self.root).take() }
+        } else {
+            unsafe {
+                if self.value < (*self.parent).value {
+                    (*self.parent).left_child.take()
+                } else {
+                    (*self.parent).right_child.take()
+                }
+            }
         }
-        self.right_child = node;
+    }
+
+    fn make_root(mut self) {
+        unsafe {
+            let root = self.root;
+            self.parent = null_mut();
+            *root = Some(Box::new(self));
+        }
+    }
+
+    fn make_child_of(self, parent: UnsafeLink<T>) {
+        unsafe {
+            if self.value < (*parent).value {
+                (*parent).set_left_child(Some(Box::new(self)));
+            } else {
+                (*parent).set_right_child(Some(Box::new(self)));
+            }
+        }
+    }
+
+    fn balance_after_insert(node: Option<&mut Self>) {
+        if let Some(node) = node {
+            if node.parent().is_none() {
+                node.color = Black;
+            }
+            if Node::get_color(node.parent()) == Red {
+                match Node::get_color(node.uncle()) {
+                    Red => {
+                        Node::set_color(node.parent(), Black);
+                        Node::set_color(node.uncle(), Black);
+                        Node::set_color(node.grandparent(), Red);
+                        Node::balance_after_insert(node.grandparent());
+                    }
+                    Black => {
+                        if Node::is_left_child(Some(node)) {
+                            if Node::is_left_child(node.parent()) {
+                                Node::set_color(node.parent(), Black);
+                                Node::set_color(node.grandparent(), Red);
+                                Node::rotate_right(node.grandparent());
+                            } else {
+                                Node::rotate_right(node.parent());
+                                Node::balance_after_insert(
+                                    node.right_child.as_mut().map(|node| node.as_mut()),
+                                );
+                            }
+                        } else if Node::is_left_child(node.parent()) {
+                            Node::rotate_left(node.parent());
+                            Node::balance_after_insert(
+                                node.left_child.as_mut().map(|node| node.as_mut()),
+                            );
+                        } else {
+                            Node::set_color(node.parent(), Black);
+                            Node::set_color(node.grandparent(), Red);
+                            Node::rotate_left(node.grandparent());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn get_color(node: Option<&mut Self>) -> LinkColor {
@@ -272,6 +315,47 @@ impl<T: Ord> Node<T> {
     fn set_color(node: Option<&mut Self>, color: LinkColor) {
         if let Some(node) = node {
             node.color = color;
+        }
+    }
+
+    fn is_left_child(node: Option<&mut Self>) -> bool {
+        if let Some(node) = node {
+            if let Some(parent) = node.parent() {
+                return node.value < parent.value;
+            }
+        }
+        false
+    }
+
+    fn rotate_left(node: Option<&mut Self>) {
+        if let Some(node) = node {
+            if let Some(mut child) = node.right_child.take() {
+                node.set_right_child(child.left_child.take());
+                if node.parent().is_some() {
+                    let parent = node.parent;
+                    child.set_left_child(node.take());
+                    child.make_child_of(parent);
+                } else {
+                    child.set_left_child(node.take());
+                    child.make_root();
+                }
+            }
+        }
+    }
+
+    fn rotate_right(node: Option<&mut Self>) {
+        if let Some(node) = node {
+            if let Some(mut child) = node.left_child.take() {
+                node.set_left_child(child.right_child.take());
+                if node.parent().is_some() {
+                    let parent = node.parent;
+                    child.set_right_child(node.take());
+                    child.make_child_of(parent);
+                } else {
+                    child.set_right_child(node.take());
+                    child.make_root();
+                }
+            }
         }
     }
 }
@@ -325,5 +409,4 @@ mod tests {
         assert!(set.contains(&9));
         set.remove(&9);
         assert!(!set.contains(&9));
-    }
 }
