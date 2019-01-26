@@ -1,6 +1,6 @@
 use crate::LinkColor::*;
 use std::cmp::Ordering::*;
-use std::fmt::Debug;
+use std::mem;
 use std::ptr::*;
 
 type Link<T> = Option<Box<Node<T>>>;
@@ -114,25 +114,26 @@ impl<T: Ord> Node<T> {
                     node.remove(value);
                 }
             }
-            Equal => {
-                if let Some(node) = &mut self.left_child {
-                    if let Some(mut current) = node.max().take() {
-                        let left_child = current.left_child.take();
-                        current.replace(left_child);
-                        current.set_left_child(self.left_child.take());
-                        current.set_right_child(self.right_child.take());
-                        self.replace(Some(current));
-                    }
-                } else {
-                    let right_child = self.right_child.take();
-                    self.replace(right_child);
-                }
-            }
+            Equal => self.remove_self(),
             Greater => {
                 if let Some(node) = &mut self.right_child {
                     node.remove(value);
                 }
             }
+        }
+    }
+
+    fn remove_self(&mut self) {
+        if self.left_child.is_some() && self.right_child.is_some() {
+            let succ = self.right_child.as_ref().unwrap().min().as_mut();
+            mem::swap(&mut self.value, &mut succ.value);
+            succ.remove_self();
+        } else if let Some(node) = self.left_child.take() {
+            self.replace(Some(node));
+        } else if let Some(node) = self.right_child.take() {
+            self.replace(Some(node));
+        } else {
+            self.replace(None);
         }
     }
 
@@ -196,7 +197,10 @@ impl<T: Ord> Node<T> {
 
     fn sibling(&self) -> Option<&mut Self> {
         if let Some(parent) = self.parent() {
-            (if self.value < parent.value {
+            (if parent.left_child.is_some()
+                && parent.left_child.as_ref().unwrap().as_ref() as *const Self
+                    == self as *const Self
+            {
                 &mut parent.right_child
             } else {
                 &mut parent.left_child
@@ -222,7 +226,10 @@ impl<T: Ord> Node<T> {
             }
         } else {
             unsafe {
-                if self.value < (*self.parent).value {
+                if (*self.parent).left_child.is_some()
+                    && (*self.parent).left_child.as_ref().unwrap().as_ref() as *const Self
+                        == self as *const Self
+                {
                     (*self.parent).set_left_child(child);
                 } else {
                     (*self.parent).set_right_child(child);
@@ -231,15 +238,35 @@ impl<T: Ord> Node<T> {
         }
     }
 
-    fn take(&self) -> Link<T> {
+    fn take(&self) -> Box<Self> {
         if self.parent.is_null() {
-            unsafe { (*self.root).take() }
+            unsafe { (*self.root).take().unwrap() }
         } else {
             unsafe {
-                if self.value < (*self.parent).value {
-                    (*self.parent).left_child.take()
+                if (*self.parent).left_child.is_some()
+                    && (*self.parent).left_child.as_ref().unwrap().as_ref() as *const Self
+                        == self as *const Self
+                {
+                    (*self.parent).left_child.take().unwrap()
                 } else {
-                    (*self.parent).right_child.take()
+                    (*self.parent).right_child.take().unwrap()
+                }
+            }
+        }
+    }
+
+    fn as_mut(&self) -> &mut Box<Self> {
+        if self.parent.is_null() {
+            unsafe { (*self.root).as_mut().unwrap() }
+        } else {
+            unsafe {
+                if (*self.parent).left_child.is_some()
+                    && (*self.parent).left_child.as_ref().unwrap().as_ref() as *const Self
+                        == self as *const Self
+                {
+                    (*self.parent).left_child.as_mut().unwrap()
+                } else {
+                    (*self.parent).right_child.as_mut().unwrap()
                 }
             }
         }
@@ -333,10 +360,10 @@ impl<T: Ord> Node<T> {
                 node.set_right_child(child.left_child.take());
                 if node.parent().is_some() {
                     let parent = node.parent;
-                    child.set_left_child(node.take());
+                    child.set_left_child(Some(node.take()));
                     Node::make_child_of(child, parent);
                 } else {
-                    child.set_left_child(node.take());
+                    child.set_left_child(Some(node.take()));
                     Node::make_root(child);
                 }
             }
@@ -349,10 +376,10 @@ impl<T: Ord> Node<T> {
                 node.set_left_child(child.right_child.take());
                 if node.parent().is_some() {
                     let parent = node.parent;
-                    child.set_right_child(node.take());
+                    child.set_right_child(Some(node.take()));
                     Node::make_child_of(child, parent);
                 } else {
-                    child.set_right_child(node.take());
+                    child.set_right_child(Some(node.take()));
                     Node::make_root(child);
                 }
             }
