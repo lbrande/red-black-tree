@@ -13,11 +13,11 @@ enum LinkColor {
 }
 
 #[derive(Debug, Default)]
-pub struct TreeSet<T: Debug + Ord> {
+pub struct TreeSet<T: Ord> {
     root: Link<T>,
 }
 
-impl<T: Debug + Ord> TreeSet<T> {
+impl<T: Ord> TreeSet<T> {
     pub fn new() -> Self {
         Self { root: None }
     }
@@ -64,7 +64,7 @@ impl<T: Debug + Ord> TreeSet<T> {
 }
 
 #[derive(Debug)]
-struct Node<T: Debug + Ord> {
+struct Node<T: Ord> {
     value: T,
     color: LinkColor,
     left_child: Link<T>,
@@ -73,7 +73,7 @@ struct Node<T: Debug + Ord> {
     root: *mut Link<T>,
 }
 
-impl<T: Debug + Ord> Node<T> {
+impl<T: Ord> Node<T> {
     fn new(value: T, root: *mut Link<T>) -> Self {
         Self {
             value,
