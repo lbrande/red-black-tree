@@ -128,10 +128,20 @@ impl<T: Ord> Node<T> {
             let succ = self.right_child.as_ref().unwrap().min().as_mut();
             mem::swap(&mut self.value, &mut succ.value);
             succ.remove_self();
-        } else if let Some(node) = self.left_child.take() {
+        } else if let Some(mut node) = self.left_child.take() {
+            node.color = Black;
             self.replace(Some(node));
-        } else if let Some(node) = self.right_child.take() {
+        } else if let Some(mut node) = self.right_child.take() {
+            node.color = Black;
             self.replace(Some(node));
+        } else if self.color == Black {
+            if Node::is_left_child(Some(self)) {
+                self.replace(None);
+                Node::balance_after_remove_left_child(self.parent());
+            } else {
+                self.replace(None);
+                Node::balance_after_remove_right_child(self.parent());
+            }
         } else {
             self.replace(None);
         }
@@ -214,6 +224,33 @@ impl<T: Ord> Node<T> {
 
     fn uncle(&self) -> Option<&mut Self> {
         self.parent().and_then(|node| node.sibling())
+    }
+
+    fn left_child(&self) -> Option<&mut Self> {
+        self.left_child
+            .as_ref()
+            .map(|node| node.as_ref().as_mut().as_mut())
+    }
+    fn right_child(&self) -> Option<&mut Self> {
+        self.right_child
+            .as_ref()
+            .map(|node| node.as_ref().as_mut().as_mut())
+    }
+
+    fn left_left_grandchild(&self) -> Option<&mut Self> {
+        self.left_child().and_then(|node| node.left_child())
+    }
+
+    fn left_right_grandchild(&self) -> Option<&mut Self> {
+        self.left_child().and_then(|node| node.right_child())
+    }
+
+    fn right_left_grandchild(&self) -> Option<&mut Self> {
+        self.right_child().and_then(|node| node.left_child())
+    }
+
+    fn right_right_grandchild(&self) -> Option<&mut Self> {
+        self.right_child().and_then(|node| node.right_child())
     }
 
     fn replace(&self, mut child: Link<T>) {
@@ -331,6 +368,62 @@ impl<T: Ord> Node<T> {
         }
     }
 
+    fn balance_after_remove_left_child(parent: Option<&mut Self>) {
+        if let Some(node) = parent {
+            if Node::get_color(node.right_child()) == Black {
+                if Node::get_color(node.right_right_grandchild()) == Red {
+                    Node::set_color(node.right_right_grandchild(), Black);
+                    Node::rotate_left(Some(node));
+                } else if Node::get_color(node.right_left_grandchild()) == Red {
+                    Node::set_color(node.right_child(), Red);
+                    Node::set_color(node.right_left_grandchild(), Black);
+                    Node::rotate_right(node.right_child());
+                    Node::balance_after_remove_left_child(Some(node));
+                } else {
+                    Node::set_color(node.right_child(), Red);
+                    if node.color == Red {
+                        node.color = Black;
+                    } else {
+                        Node::balance_after_remove_left_child(node.parent());
+                    }
+                }
+            } else {
+                Node::set_color(node.right_child(), Black);
+                node.color = Red;
+                Node::rotate_left(Some(node));
+                Node::balance_after_remove_left_child(Some(node));
+            }
+        }
+    }
+
+    fn balance_after_remove_right_child(parent: Option<&mut Self>) {
+        if let Some(node) = parent {
+            if Node::get_color(node.left_child()) == Black {
+                if Node::get_color(node.left_left_grandchild()) == Red {
+                    Node::set_color(node.left_left_grandchild(), Black);
+                    Node::rotate_right(Some(node));
+                } else if Node::get_color(node.left_right_grandchild()) == Red {
+                    Node::set_color(node.left_child(), Red);
+                    Node::set_color(node.left_right_grandchild(), Black);
+                    Node::rotate_left(node.left_child());
+                    Node::balance_after_remove_right_child(Some(node));
+                } else {
+                    Node::set_color(node.left_child(), Red);
+                    if node.color == Red {
+                        node.color = Black;
+                    } else {
+                        Node::balance_after_remove_right_child(node.parent());
+                    }
+                }
+            } else {
+                Node::set_color(node.left_child(), Black);
+                node.color = Red;
+                Node::rotate_right(Some(node));
+                Node::balance_after_remove_right_child(Some(node));
+            }
+        }
+    }
+
     fn get_color(node: Option<&mut Self>) -> LinkColor {
         if let Some(node) = node {
             node.color
@@ -348,7 +441,9 @@ impl<T: Ord> Node<T> {
     fn is_left_child(node: Option<&mut Self>) -> bool {
         if let Some(node) = node {
             if let Some(parent) = node.parent() {
-                return node.value < parent.value;
+                return parent.left_child.is_some()
+                    && parent.left_child.as_ref().unwrap().as_ref() as *const Self
+                        == node as *const Self;
             }
         }
         false
